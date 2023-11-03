@@ -2,14 +2,17 @@
 using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Mondrian.Metadata;
+using Mondrian.Models.Input;
 using Mondrian.Models.Source;
 using System.Text.RegularExpressions;
 
-Console.WriteLine("Hello, World!");
+
 
 string containerUri = "https://rrdevcfa2047244445.blob.core.windows.net/inputs/";
 string prefix = "nygc-align/Project_VLI_15187_B01_CUS_Lane.2022-06-24/";
 int segmentSize = 5000;
+Console.WriteLine("Grabbing Azure credentials for Blob Storage..");
 DefaultAzureCredential credential = new();
 BlobContainerClient blobContainerClient = new(
         new Uri(containerUri),
@@ -17,8 +20,10 @@ BlobContainerClient blobContainerClient = new(
 
 var resultSegment = blobContainerClient.GetBlobsAsync(prefix: prefix).AsPages(default, segmentSize); ;
 var cellRecords = new Dictionary<CellRecord, InputCell>();
+Console.WriteLine($"Starting file name read..");
 await foreach (Page<BlobItem> blobPage in resultSegment)
 {
+  Console.WriteLine("Reading 5000 file names..");
   foreach (BlobItem blobItem in blobPage.Values)
   {
     if (!blobItem.Name.EndsWith(".fastq.gz") || Path.GetFileName(blobItem.Name).StartsWith("Empty"))
@@ -65,9 +70,9 @@ await foreach (Page<BlobItem> blobPage in resultSegment)
         sample_type = isControl ? match.Groups[1].Value : match.Groups[1].Value.Split('-')[1],
         lanes = new List<Mondrian.Models.Input.Lane>()
       };
-      switch (match.Groups[3].Value)
+      switch (fileNameParts[1])
       {
-        case "R_1":
+        case "R1":
           cellRecords.Add(cellRecord,
           new InputCell()
           {
@@ -83,7 +88,7 @@ await foreach (Page<BlobItem> blobPage in resultSegment)
           }
           );
           break;
-        case "R_2":
+        case "R2":
           cellRecords.Add(cellRecord,
           new InputCell()
           {
@@ -104,3 +109,62 @@ await foreach (Page<BlobItem> blobPage in resultSegment)
     }
   }
 }
+List<InputCell> InputCells = cellRecords.Values.ToList();
+// Generate metadata.yaml and write to file
+Console.WriteLine("Writing metadata.yaml");
+Metadata metadata = new(InputCells);
+using (StreamWriter outputFile = new("nygcalign-metadata.yaml"))
+{
+  await outputFile.WriteAsync(metadata.Yaml);
+}
+
+// Generate inputs.json and write to file
+AlignmentWorkflow alignmentWorkflow = new()
+{
+  docker_image = "quay.io/mondrianscwgs/alignment:v0.0.84",
+  metadata_yaml = "/rrdevcfa2047244445/inputs/scy-263/scy263-metadata.yaml",
+  reference = new ReferenceGenome()
+  {
+    genome_name = "human",
+    reference = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa",
+    reference_fa_fai = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.fai",
+    reference_fa_amb = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.amb",
+    reference_fa_ann = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.ann",
+    reference_fa_bwt = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.bwt",
+    reference_fa_pac = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.pac",
+    reference_fa_sa = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/human/GRCh37-lite.fa.sa",
+  },
+  supplimentary_references = new List<ReferenceGenome>
+  {
+    new ReferenceGenome()
+    {
+      genome_name = "mouse",
+      reference = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta",
+      reference_fa_fai = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.fai",
+      reference_fa_amb = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.amb",
+      reference_fa_ann = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.ann",
+      reference_fa_bwt = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.bwt",
+      reference_fa_pac = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.pac",
+      reference_fa_sa = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/mouse/mm10_build38_mouse.fasta.sa"
+    },
+    new ReferenceGenome()
+    {
+      genome_name = "salmon",
+      reference = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna",
+      reference_fa_fai = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.fai",
+      reference_fa_amb = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.amb",
+      reference_fa_ann = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.ann",
+      reference_fa_bwt = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.bwt",
+      reference_fa_pac = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.pac",
+      reference_fa_sa = "/rrdevcfa2047244445/datasets/reference/mondrian-ref-GRCh37/salmon/GCF_002021735.1_Okis_V1_genomic.fna.sa"
+    }
+  },
+  fastq_files = new List<Mondrian.Models.Input.Cell>()
+};
+Console.WriteLine("Writing inputs.json");
+Inputs inputs = new(InputCells, alignmentWorkflow);
+using (StreamWriter outputFile = new("nygcalign-inputs.json"))
+{
+  await outputFile.WriteAsync(inputs.Json);
+}
+
